@@ -225,6 +225,8 @@ def summarize_with_example(transcript):
 ・奥さんに栄養士の指導を受けてもらい、健康的な食事を食べてもらえるようにする。
 ・高橋さんと奥さんがお互いの気持ちを伝え合う相談をするための導入として奥さんに高橋さんの気持ちを伝える。
 
+{transcript}
+
 """.strip()
 
     response = client.chat.completions.create(
