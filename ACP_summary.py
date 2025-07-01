@@ -8,7 +8,7 @@ import subprocess
 
 #APIキーを設定
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-st.title("仮想ACP要約エージェント")
+st.title("仮想ACP記録エージェント")
 
 # チャット履歴を保存
 if "messages" not in st.session_state:
@@ -29,7 +29,8 @@ def summarize_with_example(transcript):
 9.今後病院側がやる事
 
 会話を書き起こしたテキストを読んでそれぞれの項目をまとめてください。会話内で項目に該当する所が無い場合、「該当する会話なし」と記述してください。
-以下に一つの会話例とその要約を提示します。この例を参考にアップロードされたテキストを要約してください。
+以下に一つの会話例とその要約を提示します。この例を参考にアップロードされたテキストを要約してください。なお、アップロードされたテキストがACP会話ではない
+と判断した場合、「ACP会話のテキストをアップロードしてください」と出力してください。
 
 [会話]
 [00:00.000 --> 00:05.320] こんにちは。今、大丈夫ですか?お時間。
@@ -237,25 +238,9 @@ def summarize_with_example(transcript):
     )
     return response.choices[0].message.content.strip()
 
-# メッセージ送信処理
-user_input = st.text_input("テキストを入力してください：", "")
-if st.button("送信") and user_input:
-    # ユーザーの発言を履歴に追加
-    st.session_state.messages.append({"role": "user", "content": user_input})
-
-    # OpenAI API 呼び出し
-    response = client.chat.completions.create(
-        model="gpt-4.1",  # gpt-4 に変更も可
-        messages=st.session_state.messages
-    )
-
-    # アシスタントの返答を取得
-    reply = response.choices[0].message.content
-    st.session_state.messages.append({"role": "assistant", "content": reply})
-
 
 #音声ファイルのアップデートと書き起こし
-st.subheader("音声ファイルをアップロードして書き起こし")
+st.subheader("音声ファイルをアップロードして要約")
 
 audio_file = st.file_uploader("音声ファイルを選択（mp3, wav, m4a）", type=["mp3", "wav", "m4a"], key="audio")
 
@@ -274,9 +259,6 @@ if audio_file is not None:
                 st.text_area("書き起こし結果", transcript_text, height=200)
         
             # チャット履歴に送信
-                if "messages" not in st.session_state:
-                    st.session_state.messages = [{"role": "system", "content": "あなたは親切なアシスタントです。"}]
-
                 st.session_state.messages.append({"role": "user", "content": transcript_text})
                 response = client.chat.completions.create(
                     model="gpt-4",
@@ -289,13 +271,15 @@ if audio_file is not None:
         else:
             st.error("書き起こしに失敗しました。")
 
-#テキストファイルのアップデート
+#テキストファイルのアップロード
 st.subheader("テキストファイルをアップロードして要約")
 text_file = st.file_uploader("テキストファイルを選択（.txt）", type=["txt"], key="text")
 
 if text_file is not None and st.button("テキストファイルを要約"):
     file_content = text_file.read().decode("utf-8")
     
+    st.session_state.messages.append({"role": "user", "content": file_content})
+
     # 表示切り替えチェックボックス（デフォルト: False）
     show_text = st.checkbox("アップロードしたテキストの内容を表示する", value=False)
     
@@ -303,16 +287,65 @@ if text_file is not None and st.button("テキストファイルを要約"):
         st.text_area("アップロード内容", file_content, height=150)
 
     summary = summarize_with_example(file_content)
-    st.session_state.messages.append({"role": "user", "content": f"[テキスト内容に基づいた要約依頼]\n{file_content}"})
-    st.session_state.messages.append({"role": "assistant", "content": summary})
-    st.markdown(f"**要約:** {summary}")
+    st.session_state.latest_summary = summary
 
+if "latest_summary" in st.session_state:
+    st.subheader("会話の要約")
+    st.text_area("要約", st.session_state.latest_summary,height=800,key="latest_summary_area")
 
-# チャット履歴の表示
+st.subheader("チャット")
+
+# 入力用セッション初期化
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
+if "latest_reply" not in st.session_state:
+    st.session_state.latest_reply = ""
+
+# 入力フォーム
+with st.form("chat_form", clear_on_submit=True):
+    st.session_state.user_input = st.text_input("テキストを入力してください：", key="chat_input")
+    submitted = st.form_submit_button("送信")
+
+if submitted and st.session_state.user_input:
+    # 入力をチャット履歴に追加
+    st.session_state.messages.append({"role": "user", "content": st.session_state.user_input})
+
+    # ChatGPTに送信
+    response = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=st.session_state.messages
+    )
+    reply = response.choices[0].message.content
+
+    # 最新の返答だけ保存
+    st.session_state.latest_reply = reply
+    # 応答を履歴に追加
+    st.session_state.messages.append({"role": "assistant", "content": reply})
+
+# 最新の応答を入力欄の直下に表示
+if st.session_state.latest_reply:
+    st.markdown("**アシスタントの返答：**")
+    st.markdown(f""" {st.session_state.latest_reply}""", unsafe_allow_html=True)
+
+# チャット履歴を表示（古い順）
 st.subheader("チャット履歴")
-for msg in st.session_state.messages[1:]:  # systemメッセージは表示しない
+for msg in st.session_state.messages[1:]:  # systemメッセージは除外
     if msg["role"] == "user":
-        st.markdown("**あなた:**")
-        st.text_area(label="", value=msg["content"], height=100, key=f"user_{hash(msg['content'])}")
-    else:
+        st.markdown(
+            f"""<div style='
+                background-color: #1a1a1a;
+                color: white;
+                padding: 8px 12px;
+                border-radius: 10px;
+                margin: 2px 0;
+                display: block;
+                width: fit-content;
+                max-width: 80%;
+                margin-left: auto;
+                text-align: left;
+                white-space: pre-wrap;
+            '>{msg['content']}</div>""",
+            unsafe_allow_html=True
+        )
+    elif msg["role"] == "assistant":
         st.markdown(f"**アシスタント:** {msg['content']}")
