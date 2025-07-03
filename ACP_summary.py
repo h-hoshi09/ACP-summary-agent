@@ -327,6 +327,9 @@ if st.session_state.latest_reply:
     st.markdown("**アシスタントの返答：**")
     st.markdown(f""" {st.session_state.latest_reply}""", unsafe_allow_html=True)
 
+#仕切り線
+st.markdown("<hr style='margin: 25px 0;'>", unsafe_allow_html=True)
+
 # チャット履歴を表示（古い順）
 st.subheader("チャット履歴")
 for msg in st.session_state.messages[1:]:  # systemメッセージは除外
